@@ -4,6 +4,11 @@ Push-to-talk dictation for macOS that works in any app: hold **Right Option**, s
 pasted at the cursor. Speech-to-text goes through ChatGPT's internal transcribe endpoint, signed in with the
 Codex login already on your Mac, so you don't need a separate API key. It recognizes Vietnamese and English.
 
+![Hold Right Option, speak, release: the HUD shows the live level meter, then the text is pasted](docs/demo.gif)
+
+[Watch the demo with sound](docs/demo.mp4). The voice is macOS text-to-speech; the pasted text is what the
+transcribe endpoint actually returned for it.
+
 > This is a personal tool and is not affiliated with OpenAI. It relies on an internal API that can break at any
 > time, and you use it at your own risk to your ChatGPT account. See [Limitations](#limitations).
 
