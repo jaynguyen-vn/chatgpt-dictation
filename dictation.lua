@@ -1,5 +1,6 @@
 -- Push-to-talk dictation for every macOS app, using ChatGPT's transcribe endpoint.
--- Hold Right Option to talk; release it and the text is pasted at the cursor.
+-- Hold Right Option to talk; release it and the text is pasted at the cursor. When no text field has focus, the
+-- text is left on the clipboard instead. Right Option+P pastes the last transcript again.
 -- Pressing any other key while holding it (i.e. using an Option+key shortcut) cancels the take.
 --
 -- The mic only opens when you use it: the first press opens it (~0.5 s, the HUD shows "Opening mic…"), then
@@ -30,6 +31,8 @@ local MAX_SEC = 120 -- stop automatically if the key is never released
 local REFRESH_UNDER_HOURS = 72 -- tokens live 10 days; ask Codex to refresh once fewer than 3 days are left
 local REFRESH_CHECK_SEC = 6 * 3600
 local RIGHT_OPTION = hs.eventtap.event.rawFlagMasks.deviceRightAlternate
+local REPASTE_KEY = "p" -- Right Option + this key pastes the last transcript again
+local REPASTE_KEYCODE = hs.keycodes.map[REPASTE_KEY]
 local types = hs.eventtap.event.types
 
 local LISTENING = "Listening… release Right Option to stop"
@@ -48,6 +51,8 @@ local daemon, awaitingReady, inFlight = nil, false, 0
 local recording, startedAt, maxTimer, closeTimer
 local restoreTimer, refreshTask -- keep references: a timer/task nobody holds is garbage-collected before it runs
 local mutedOutput -- output device this take muted; only unmute a device we muted ourselves
+local lastText -- most recent transcript, for Right Option+REPASTE_KEY
+local repastePending, repasteTimer -- Right Option+REPASTE_KEY was pressed; paste once Right Option is released
 
 local hud, hudTimer, levels = nil, nil, {}
 
@@ -117,6 +122,30 @@ local function pasteText(text)
   end)
 end
 
+local function copyText(text)
+  if restoreTimer then restoreTimer:stop(); restoreTimer = nil end -- an earlier paste must not put the old clipboard back
+  hs.pasteboard.setContents(text)
+end
+
+-- Focused elements that can't take pasted text. Anything else still gets Cmd+V, including apps that report no
+-- focused element at all (most Electron apps, e.g. VS Code, Slack, Discord), so a wrong guess never loses text.
+local NOT_TEXT_ROLES = {
+  AXWebArea = true, AXButton = true, AXLink = true, AXList = true, AXOutline = true, AXBrowser = true,
+  AXImage = true, AXStaticText = true, AXWindow = true,
+}
+
+-- False only when nothing can take the text: the frontmost app has no window, or focus is on a non-text element.
+local function textFieldFocused()
+  local app = hs.application.frontmostApplication()
+  local ax = app and hs.axuielement.applicationElement(app)
+  if not ax then return true end
+  ax:setTimeout(0.2) -- a hung app must not freeze Hammerspoon and its key tap
+  local focused = ax:attributeValue("AXFocusedUIElement")
+  if not focused then return ax:attributeValue("AXFocusedWindow") ~= nil end
+  focused:setTimeout(0.2)
+  return not NOT_TEXT_ROLES[focused:attributeValue("AXRole")]
+end
+
 local function muteOutput()
   local device = hs.audiodevice.defaultOutputDevice()
   if device and not device:outputMuted() and device:setOutputMuted(true) then mutedOutput = device end
@@ -127,10 +156,20 @@ local function restoreOutput()
   if mutedOutput then mutedOutput:setOutputMuted(false); mutedOutput = nil end
 end
 
--- Default output: paste at the cursor. Can be replaced (e.g. in tests) with any function that takes the text.
+-- Default output: paste at the cursor, or leave the text on the clipboard when no text field has focus. Can be
+-- replaced (e.g. in tests) with any function that takes the text.
 M.output = function(text)
-  pasteText(text)
-  notify("done", "Pasted", 0.8)
+  if textFieldFocused() then
+    pasteText(text)
+    notify("done", "Pasted", 0.8)
+  else
+    copyText(text)
+    notify("error", "No text field focused: text copied, press Cmd+V to paste", 4)
+  end
+end
+
+local function repasteLast()
+  if lastText then M.output(lastText) else notify("error", "No transcript to paste yet", 2) end
 end
 
 local function daemonRunning() return daemon ~= nil and daemon:isRunning() end
@@ -171,6 +210,7 @@ local function handleEvent(event)
     inFlight = math.max(0, inFlight - 1)
     if event.event == "text" then
       print("[dictation] " .. event.text)
+      lastText = event.text
       M.output(event.text)
     else
       print("[dictation] error: " .. tostring(event.message))
@@ -242,12 +282,22 @@ function M.stop(cancel)
 end
 
 M.tap = hs.eventtap.new({ types.flagsChanged, types.keyDown }, function(event)
+  local rightOption = (event:rawFlags() & RIGHT_OPTION) ~= 0
   if event:getType() == types.keyDown then
     M.stop(true)
-  elseif (event:rawFlags() & RIGHT_OPTION) ~= 0 then
+    if rightOption and event:getKeyCode() == REPASTE_KEYCODE and event:getFlags():containExactly({ "alt" }) then
+      repastePending = true
+      return true -- swallow the key so the app doesn't type "π"
+    end
+  elseif rightOption then
     startRecording()
   else
     M.stop()
+    if repastePending then
+      repastePending = false
+      -- Paste after this tap callback returns and Right Option is up, so the held Option can't mix into Cmd+V.
+      repasteTimer = hs.timer.doAfter(0, repasteLast)
+    end
   end
   return false
 end)

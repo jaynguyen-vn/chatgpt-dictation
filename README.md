@@ -41,6 +41,11 @@ To use the `hs` command in a terminal (see [Testing](#testing)), add `require("h
 
 - Hold Right Option, wait until the HUD at the bottom of the screen shows a red dot and "Listening…", speak,
   then release. The text is pasted with Cmd+V, and your previous clipboard is restored right after.
+- If no text field has focus when the text arrives (for example the app has no window, or a web page, list or
+  button has focus), nothing is pasted: the text is left on the clipboard and the HUD tells you to press Cmd+V.
+  This check uses Accessibility. Apps that don't report what has focus (most Electron apps) still get Cmd+V.
+- Right Option+P pastes the last transcript again, for when it landed in the wrong place: click into the text
+  field and press it. The last transcript is kept in memory only, so it is gone after a Hammerspoon reload.
 - Every state appears in the same HUD at the bottom of the screen, told apart by the dot color: grey while the
   mic opens, red while listening, blue for "Transcribing…", green for "Pasted", orange for errors.
 - The bars in the HUD follow the mic level. If they rise while you talk, the mic hears you. If they stay almost
@@ -52,7 +57,8 @@ To use the `hs` command in a terminal (see [Testing](#testing)), add `require("h
 - On the first press while the mic is closed, the HUD shows a grey dot and "Opening mic…" for about half a
   second. From the second take on, the mic is already open and keeps a short buffer from before the press, so
   the first word isn't lost even if you start talking right away.
-- Pressing another key while holding Option cancels the take, so Option+key shortcuts keep working. Very short
+- Pressing another key while holding Option cancels the take, so Option+key shortcuts keep working (except Right
+  Option+P, which is taken by the paste-again shortcut; Left Option+P still types "π"). Very short
   presses are ignored as accidental. If you forget to release the key, recording stops on its own.
 - The orange dot in the menu bar means the mic is open. The mic closes after a while without use, when the
   screen locks, when the Mac sleeps, or when the default mic changes. With a Bluetooth headset the mic closes
@@ -72,6 +78,7 @@ The constants live at the top of `dictation.lua`. Reload the Hammerspoon config 
 | `MAX_SEC` | Recording stops on its own after this many seconds |
 | `REFRESH_UNDER_HOURS` | Ask Codex to refresh the token once fewer hours than this are left |
 | `RIGHT_OPTION` | The push-to-talk key |
+| `REPASTE_KEY` | Right Option + this key pastes the last transcript again |
 | `LEVEL_FLOOR_DB`, `LEVEL_CEIL_DB` | Scale of the level meter: below the floor the bars are flat, at the ceiling they are full. Raise the floor if the bars stay high in a quiet room |
 
 ## Testing
